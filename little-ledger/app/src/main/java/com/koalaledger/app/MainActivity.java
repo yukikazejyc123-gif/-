@@ -49,6 +49,7 @@ public final class MainActivity extends Activity {
         frame.setBackgroundColor(Color.rgb(248, 247, 240));
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(248, 247, 240));
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         frame.addView(webView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);

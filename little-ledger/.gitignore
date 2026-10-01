@@ -10,3 +10,6 @@ dev-signing/
 *.pfx
 .env
 .env.*
+node_modules/
+test-results/
+playwright-report/
