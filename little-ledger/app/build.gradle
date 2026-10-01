@@ -11,8 +11,8 @@ android {
         applicationId 'com.koalaledger.app'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.5.1'
+        versionCode 7
+        versionName '0.5.2'
     }
 
     // Local test builds retain the existing update signature. A fresh clone

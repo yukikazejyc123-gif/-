@@ -1,10 +1,10 @@
 {
   "name": "little-ledger-ui-tests",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "Browser regressions for Little Ledger's bundled Android UI",
   "scripts": {
-    "test": "node --test tests/ui-feedback.test.cjs"
+    "test": "node --test tests/ui-feedback.test.cjs tests/ui-feature-improvements.test.cjs"
   },
   "engines": {
     "node": ">=20"

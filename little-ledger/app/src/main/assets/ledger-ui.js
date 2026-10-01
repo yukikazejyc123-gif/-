@@ -25,10 +25,11 @@
   bindBook();
   let picker = null, pickerReturnFocus = '', editingBookId = null, bookNameDraft = '';
   let today = C.validDate(store.today) ? store.today : '2026-09-30';
-  let currentMonth = today.slice(0, 7), selectedMonth = currentMonth, selectedDay = null;
+  let currentMonth = today.slice(0, 7), selectedMonth = currentMonth, selectedDay = today;
   let screen = 'home', history = [], viewYear = Number(today.slice(0, 4)), monthOrigin = 'home';
   let draft = {}, editId = null, detailId = null, categoryType = 'expense', categoryDraft = null;
   let budgetCategory = '餐饮', budgetDraft = '', filterCategory = null, statType = 'expense', trendDay = null;
+  let budgetDetailsCategory = null, budgetEditOrigin = null, recordOrigin = null;
   let query = '', error = '', toast = '', modal = null, pendingBackup = null, undoModel = null, busy = false, toastTimer, listLimit = 80;
   let lastRenderedScreen = null, lastHomeDate = null, dateAnimationTimer, koalaReaction = 0, koalaTimer, koalaBlinkTimer, rateRequest = null, rateSequence = 0;
   let rebaseDraft = null, rebaseRequest = null, rebaseTimer;
@@ -114,6 +115,10 @@
   });
   Object.assign(dictionary, {'恢复前会保留全部账本副本，可撤销这次恢复。':'復元前にすべての家計簿のコピーを保存するので、復元を取り消せます。','回到恢复前的全部账本':'復元前のすべての家計簿に戻す','分类名称':'カテゴリの名前'});
   Object.assign(korean, {'恢复前会保留全部账本副本，可撤销这次恢复。':'복원 전에 모든 가계부의 사본을 저장하므로 복원을 되돌릴 수 있어요.','回到恢复前的全部账本':'복원 전의 모든 가계부로 돌아가요','分类名称':'분류 이름'});
+  Object.assign(dictionary, {'每日支出':'日ごとの支出','预算明细':'予算の明細','编辑预算':'予算を編集','剩余':'残り','分类支出明细':'カテゴリの支出明細','这个月还没有设置这项预算。':'この月の予算はまだ設定されていません。','这个分类本月还没有支出':'この月、このカテゴリの支出はまだありません'});
+  Object.assign(korean, {'每日支出':'일별 지출','预算明细':'예산 상세','编辑预算':'예산 수정','剩余':'남은 예산','分类支出明细':'분류별 지출 내역','这个月还没有设置这项预算。':'이 달에는 이 예산을 아직 설정하지 않았어요.','这个分类本月还没有支出':'이 달에는 이 분류의 지출이 없어요'});
+  dictionary['月历'] = '月間カレンダー';
+  korean['月历'] = '월간 달력';
   const t = key => model.design.language === 'en' ? globalThis.LedgerEnglish?.[key] || key : model.design.language === 'ko' ? korean[key] || key : model.design.language === 'ja' ? dictionary[key] || key : key;
   const bookName = book => book.name || t('默认账本');
   const currentBookName = () => bookName(C.activeBook(collection));
@@ -143,7 +148,12 @@
   function empty(label, action = true) {return `<div class="ll-empty"><div class="ll-empty-leaf">${icon('notebook-pen')}</div><strong>${e(t(label))}</strong>${action ? button('add', t('开始记账'), 'plus', 'll-soft-button') : ''}</div>`;}
   function budgetSection() {
     const items = C.budgetItems(model, selectedMonth);
-    return `<section class="ll-section"><div class="ll-section-head"><h2>${e(t('分类预算'))}</h2>${button('budgets', t('查看全部'), 'arrow-up-right', 'll-link')}</div>${items.length ? `<div class="ll-budget-grid">${items.slice(0, 2).map(item => budgetCard(item, true)).join('')}</div>` : `<div class="ll-budget-empty"><span class="ll-category-icon">${icon('sprout')}</span><div><strong>${e(t('给生活留一点余地'))}</strong><p>${e(t('先为常用分类设一个小目标吧。'))}</p></div>${iconButton('budget-new', '设置预算', 'plus')}</div>`}</section>`;
+    return `<section class="ll-section ll-home-budgets"><div class="ll-section-head"><h2>${e(t('分类预算'))}</h2>${button('budgets', t('查看全部'), 'arrow-up-right', 'll-link')}</div>${items.length ? `<div class="ll-home-budget-list">${items.slice(0, 2).map(homeBudgetCard).join('')}</div>` : `<div class="ll-budget-empty"><span class="ll-category-icon">${icon('sprout')}</span><strong>${e(t('还没有设置预算'))}</strong>${button('budget-new', t('设置预算'), 'plus', 'll-link')}</div>`}</section>`;
+  }
+  function homeBudgetCard(item) {
+    const values = [['预算金额', item.limit], ['已花', item.spent], [item.remaining < 0 ? '已超支' : '剩余', Math.abs(item.remaining)]];
+    const summary = `${name(item.id)} · ${values.map(([label, amount]) => `${t(label)} ${C.formatMoney(amount, model.currency)}`).join(' · ')}`;
+    return `<button type="button" class="ll-budget-card ll-home-budget-card ${item.state}" data-budget-category="${e(item.id)}" aria-label="${e(summary)}"><div class="ll-budget-title">${categoryIcon(cat(item.id).icon, '', '', cat(item.id).color)}<span>${e(name(item.id))}</span><small>${e(model.currency)}</small>${icon('chevron-right')}</div><div class="ll-home-budget-values">${values.map(([label, amount]) => `<div><span>${e(t(label))}</span><strong>${money(amount)}</strong></div>`).join('')}</div><div class="ll-home-budget-meter"><div class="ll-track" role="progressbar" aria-label="${e(`${name(item.id)} · ${t('预算')}`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, item.percent)}"><span style="width:${Math.min(100, item.percent)}%"></span></div><small>${item.percent > 999 ? '&gt;999%' : item.percent + '%'}</small></div></button>`;
   }
   function rows(records) {
     let previous = '';
@@ -166,13 +176,15 @@
   function weekStrip() {
     const anchor = selectedDay || (selectedMonth === currentMonth ? today : selectedMonth + '-01');
     const monday = new Date(anchor + 'T12:00:00Z'); monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
+    const expenses = new Map(); model.transactions.filter(record => record.type === 'expense').forEach(record => expenses.set(record.date, (expenses.get(record.date) || 0) + converted(record)));
     return `<div class="ll-week-strip" aria-label="${e(t('这周'))}">${Array.from({length: 7}, (_, index) => {
       const date = new Date(monday); date.setUTCDate(monday.getUTCDate() + index); const key = date.toISOString().slice(0, 10);
       if (!C.validDate(key)) return '<span></span>';
-      return `<button type="button" data-select-day="${key}" aria-pressed="${selectedDay === key}" class="${key === today ? 'is-today' : ''} ${key.slice(0, 7) !== selectedMonth ? 'other-month' : ''}" aria-label="${e(dateName(key))}"><span>${e(t(['周一', '周二', '周三', '周四', '周五', '周六', '周日'][index]))}</span><strong>${date.getUTCDate()}</strong><i aria-hidden="true">${key === today ? '·' : ''}</i></button>`;
+      const amount = expenses.get(key) || 0;
+      return `<button type="button" data-select-day="${key}" data-day-expense="${amount}" aria-pressed="${selectedDay === key}" class="${key === today ? 'is-today' : ''} ${key.slice(0, 7) !== selectedMonth ? 'other-month' : ''}" aria-label="${e(`${dateName(key)} · ${t('每日支出')} ${C.formatMoney(amount, model.currency)}`)}"><span>${e(t(['周一', '周二', '周三', '周四', '周五', '周六', '周日'][index]))}</span><strong>${date.getUTCDate()}</strong><small class="ll-week-expense">${expenses.has(key) ? e(compactDayAmount(amount)) : '—'}</small></button>`;
     }).join('')}</div>`;
   }
-  function home() {return top(t('小小账本'), t('每一笔，都是生活')) + period() + hero() + `<div class="ll-shortcuts">${button('year', t('年度账单'), 'calendar-range', 'll-shortcut')}${button('calendar', t('按日期查看'), 'calendar-days', 'll-shortcut')}</div>` + weekStrip() + ledgerList() + budgetSection();}
+  function home() {return top(t('小小账本'), '') + period() + hero() + `<div class="ll-shortcuts ll-home-tools">${button('calendar', t('月历'), 'calendar-days', 'll-shortcut ll-calendar-open')}${button('year', t('年度账单'), 'calendar-range', 'll-shortcut ll-year-open')}</div><section class="ll-week-card">${weekStrip()}</section>` + budgetSection() + ledgerList();}
   function yearControls() {return `<div class="ll-year-controls"><button type="button" class="ll-icon-btn" data-move-year="-1" aria-label="${e(t('上一年'))}" ${viewYear === 1 ? 'disabled' : ''}>${icon('chevron-left')}</button><label><input name="view-year" type="number" min="1" max="9999" value="${viewYear}" aria-label="${e(t('年份'))}"><span>${yearSuffix()}</span></label><button type="button" class="ll-icon-btn" data-move-year="1" aria-label="${e(t('下一年'))}" ${viewYear === 9999 ? 'disabled' : ''}>${icon('chevron-right')}</button>${button('this-year', t('今年'), '', 'll-today')}</div>`;}
   function annual() {
     const months = C.yearMonths(model, viewYear), max = Math.max(1, ...months.map(month => Math.max(month.income, month.expense)));
@@ -182,7 +194,15 @@
   function calendar() {
     const first = new Date(selectedMonth + '-01T00:00:00Z'), offset = (first.getUTCDay() + 6) % 7;
     const expenses = new Map(); C.monthRecords(model, selectedMonth).filter(record => record.type === 'expense').forEach(record => expenses.set(record.date, (expenses.get(record.date) || 0) + converted(record)));
-    return top(t('按日期查看'), '', true) + period() + `<div class="ll-calendar"><div class="ll-weekdays">${['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map(day => `<span>${e(t(day))}</span>`).join('')}</div><div class="ll-calendar-grid">${Array.from({length: offset}, () => '<span></span>').join('')}${Array.from({length: C.monthLength(selectedMonth)}, (_, index) => {const date = selectedMonth + '-' + String(index + 1).padStart(2, '0'); return `<button type="button" data-select-day="${date}" aria-pressed="${date === selectedDay}" class="${date === today ? 'is-today' : ''}" aria-label="${dateName(date)}"><strong>${index + 1}</strong>${expenses.has(date) ? '<i></i>' : '<span></span>'}</button>`;}).join('')}</div></div><label class="ll-date-jump">${icon('calendar-search')}<span>${e(t('日期'))}</span><input type="date" name="filter-date" value="${selectedDay || today}" aria-label="${e(t('日期'))}" min="0001-01-01" max="9999-12-31"></label>${button('today', t('今天'), 'corner-down-left', 'll-secondary full')}`;
+    return top(t('月历'), '', true) + period() + `<p class="ll-calendar-caption">${e(t('每日支出'))} · ${e(model.currency)}</p><div class="ll-calendar"><div class="ll-weekdays">${['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map(day => `<span>${e(t(day))}</span>`).join('')}</div><div class="ll-calendar-grid">${Array.from({length: offset}, () => '<span></span>').join('')}${Array.from({length: C.monthLength(selectedMonth)}, (_, index) => {const date = selectedMonth + '-' + String(index + 1).padStart(2, '0'), amount = expenses.get(date) || 0; return `<button type="button" data-select-day="${date}" data-day-expense="${amount}" aria-pressed="${date === selectedDay}" class="${date === today ? 'is-today' : ''}" aria-label="${e(`${dateName(date)} · ${t('每日支出')} ${C.formatMoney(amount, model.currency)}`)}"><span class="ll-day-number">${index + 1}</span><small class="ll-day-expense">${expenses.has(date) ? e(compactDayAmount(amount)) : '—'}</small></button>`;}).join('')}</div></div><label class="ll-date-jump">${icon('calendar-search')}<span>${e(t('日期'))}</span><input type="date" name="filter-date" value="${selectedDay || today}" aria-label="${e(t('日期'))}" min="0001-01-01" max="9999-12-31"></label>${button('today', t('今天'), 'corner-down-left', 'll-secondary full')}`;
+  }
+  function compactDayAmount(amount) {
+    const exact = money(amount);
+    if (exact.length <= 6) return exact;
+    const locale = {zh: 'zh-CN', ja: 'ja-JP', ko: 'ko-KR', en: 'en-US'}[model.design.language];
+    const value = amount / 10 ** C.currencyInfo(model.currency).digits;
+    try {return new Intl.NumberFormat(locale, {notation: 'compact', maximumFractionDigits: 0}).format(value);}
+    catch {return value >= 1000000 ? Math.round(value / 1000000) + 'M' : Math.round(value / 1000) + 'K';}
   }
   function stats() {
     const groups = C.categoryTotals(model, selectedMonth, statType), total = groups.reduce((sum, group) => sum + group.amount, 0);
@@ -241,12 +261,14 @@
   function startAdd() {
     refreshClock(); const type = 'expense'; const active = activeCats(type);
     draft = {type, category: active.find(item => item.id === model.design.lastExpenseCategory)?.id || active[0].id, amount: '', date: selectedDay || (selectedMonth === currentMonth ? today : selectedMonth + '-01'), note: ''};
-    prepareCurrency(model.design.lastCurrency || model.currency); editId = null; go('add');
+    prepareCurrency(model.design.lastCurrency || model.currency); editId = null; recordOrigin = null; go('add');
     if (draft.currency !== model.currency) requestDraftRate();
   }
   function addPage() {
     const keys = ['1', '2', '3', 'backspace', '4', '5', '6', '+', '7', '8', '9', '-', 'clear', '0', C.currencyInfo(draft.currency).digits ? '.' : '00', '='];
-    return top(t(editId ? '修改账目' : '记一笔'), currentBookName(), true) + `<div class="ll-segment">${['expense', 'income'].map(type => `<button type="button" data-type="${type}" aria-pressed="${draft.type === type}">${e(t(type === 'expense' ? '支出' : '收入'))}</button>`).join('')}</div><div class="ll-amount-box"><div class="ll-currency-row"><span>${e(t('金额'))}</span><button type="button" class="ll-select-trigger" data-action="pick-entry-currency" aria-haspopup="dialog" aria-label="${e(t('这笔的货币'))}"><span>${e(currencyLabel(draft.currency))}</span>${icon('chevron-down')}</button></div><div class="ll-amount-value"><b>${e(currencySymbol(draft.currency))}</b><input name="amount" inputmode="none" autocomplete="off" maxlength="32" placeholder="0" value="${e(draft.amount)}" aria-label="${e(t('金额'))}"></div></div>${exchangePanel()}<div class="ll-form-section-head"><span>${e(t('分类'))}</span>${button('manage-categories', t('管理'), 'sliders-horizontal', 'll-link')}</div><div class="ll-categories">${model.categories.filter(category => category.type === draft.type && (!category.archived || category.id === draft.category)).map(category => `<button type="button" data-category="${e(category.id)}" aria-pressed="${category.id === draft.category}">${categoryIcon(category.icon, '', '', category.color)}<span>${e(name(category.id))}</span></button>`).join('')}</div><div class="ll-entry-extras"><label class="ll-entry-date">${icon('calendar-days')}<input type="date" name="entry-date" value="${draft.date}" min="0001-01-01" max="9999-12-31" aria-label="${e(t('日期'))}"></label>${button('draft-today', t('今天'), '', 'll-today')}</div><label class="ll-note-row">${icon('pencil-line')}<input name="note" type="text" maxlength="200" placeholder="${e(t('备注'))} · ${e(t('选填'))}" value="${e(draft.note)}" aria-label="${e(t('备注'))}"></label>${draft.date > today ? `<p class="ll-future-note">${icon('calendar-clock')}${e(t('未来日期'))} · ${e(t('这笔会计入所选月份的收支和预算。'))}</p>` : ''}${errorBlock()}<div class="ll-keypad">${keys.map(key => `<button type="button" data-key="${key}" class="${['backspace', '+', '-', '=', 'clear'].includes(key) ? 'operator' : ''}" aria-label="${e(key === 'clear' ? t('清空') : key === 'backspace' ? t('删除') : key)}">${key === 'backspace' ? icon('delete') : key === 'clear' ? t('清空') : key === '-' ? '−' : key}</button>`).join('')}</div><div class="ll-save-row">${editId ? '' : button('save-next', t('保存，再记一笔'), 'list-plus', 'll-secondary')}${button('save-record', t(editId ? '保存修改' : '保存'), 'check', 'll-primary')}</div>`;
+    const amountBox = `<div class="ll-amount-box"><div class="ll-currency-row"><span>${e(t('金额'))}</span><button type="button" class="ll-select-trigger" data-action="pick-entry-currency" aria-haspopup="dialog" aria-label="${e(t('这笔的货币'))}"><span>${e(currencyLabel(draft.currency))}</span>${icon('chevron-down')}</button></div><div class="ll-amount-value"><b>${e(currencySymbol(draft.currency))}</b><input name="amount" inputmode="none" autocomplete="off" maxlength="32" placeholder="0" value="${e(draft.amount)}" aria-label="${e(t('金额'))}"></div></div>`;
+    const keypadView = `<div class="ll-keypad">${keys.map(key => `<button type="button" data-key="${key}" class="${['backspace', '+', '-', '=', 'clear'].includes(key) ? 'operator' : ''}" aria-label="${e(key === 'clear' ? t('清空') : key === 'backspace' ? t('删除') : key)}">${key === 'backspace' ? icon('delete') : key === 'clear' ? t('清空') : key === '-' ? '−' : key}</button>`).join('')}</div>`;
+    return top(t(editId ? '修改账目' : '记一笔'), currentBookName(), true) + `<div class="ll-segment">${['expense', 'income'].map(type => `<button type="button" data-type="${type}" aria-pressed="${draft.type === type}">${e(t(type === 'expense' ? '支出' : '收入'))}</button>`).join('')}</div><section class="ll-entry-composer">${amountBox}${keypadView}</section>${exchangePanel()}<div class="ll-form-section-head"><span>${e(t('分类'))}</span>${button('manage-categories', t('管理'), 'sliders-horizontal', 'll-link')}</div><div class="ll-categories">${model.categories.filter(category => category.type === draft.type && (!category.archived || category.id === draft.category)).map(category => `<button type="button" data-category="${e(category.id)}" aria-pressed="${category.id === draft.category}">${categoryIcon(category.icon, '', '', category.color)}<span>${e(name(category.id))}</span></button>`).join('')}</div><div class="ll-entry-extras"><label class="ll-entry-date">${icon('calendar-days')}<input type="date" name="entry-date" value="${draft.date}" min="0001-01-01" max="9999-12-31" aria-label="${e(t('日期'))}"></label>${button('draft-today', t('今天'), '', 'll-today')}</div><label class="ll-note-row">${icon('pencil-line')}<input name="note" type="text" maxlength="200" placeholder="${e(t('备注'))} · ${e(t('选填'))}" value="${e(draft.note)}" aria-label="${e(t('备注'))}"></label>${draft.date > today ? `<p class="ll-future-note">${icon('calendar-clock')}${e(t('未来日期'))} · ${e(t('这笔会计入所选月份的收支和预算。'))}</p>` : ''}${errorBlock()}<div class="ll-save-row">${editId ? '' : button('save-next', t('保存，再记一笔'), 'list-plus', 'll-secondary')}${button('save-record', t(editId ? '保存修改' : '保存'), 'check', 'll-primary')}</div>`;
   }
   function detail() {
     const record = model.transactions.find(item => item.id === detailId); if (!record) return top(t('明细'), '', true) + empty('没有符合条件的账目', false);
@@ -260,12 +282,22 @@
     const items = C.budgetItems(model, selectedMonth), previous = C.moveMonth(selectedMonth, -1);
     return top(t('分类预算'), '') + period() + `<div class="ll-budget-intro"><span class="ll-category-icon">${icon('sprout')}</span><p>${e(t('设置这个月的分类预算'))}</p></div>${items.length ? `<div class="ll-budget-grid">${items.map(item => budgetCard(item)).join('')}</div>` : empty('还没有设置预算', false)}${button('budget-new', t('添加分类预算'), 'plus', 'll-primary full')}${previous !== selectedMonth && Object.keys(model.budgets[previous] || {}).length ? button('copy-budgets', t('沿用上月预算'), 'copy', 'll-secondary full') : ''}${errorBlock()}`;
   }
+  function budgetDetails() {
+    const category = cat(budgetDetailsCategory);
+    if (!category || category.type !== 'expense') return top(t('预算明细'), '', true) + empty('没有符合条件的账目', false);
+    const records = C.monthRecords(model, selectedMonth).filter(record => record.type === 'expense' && record.category === category.id);
+    const limit = model.budgets[selectedMonth]?.[category.id], hasBudget = Number.isSafeInteger(limit) && limit > 0;
+    const spent = C.totals(records).expense, remaining = hasBudget ? limit - spent : null;
+    const state = !hasBudget ? 'unset' : spent > limit ? 'over' : spent * 100 >= limit * 80 ? 'near' : 'normal';
+    const values = [['limit', '预算金额', hasBudget ? limit : null], ['spent', '已花', spent], ['remaining', remaining !== null && remaining < 0 ? '已超支' : '剩余', remaining]];
+    return top(t('预算明细'), currentBookName(), true) + period() + `<div class="ll-budget-detail-category">${categoryIcon(category.icon, '', '', category.color)}<div><strong>${e(name(category.id))}</strong>${category.archived ? `<small>${e(t('已隐藏'))}</small>` : ''}</div></div><section class="ll-budget-summary ${state}">${values.map(([key, label, amount]) => `<div class="ll-budget-summary-item"><span>${e(t(label))}</span><strong data-budget-value="${key}" data-minor="${amount === null ? '' : amount}">${amount === null ? '—' : money(Math.abs(amount))}</strong><small>${e(model.currency)}</small></div>`).join('')}</section>${hasBudget ? `<div class="ll-budget-detail-progress ${state}"><div class="ll-track" role="progressbar" aria-label="${e(`${name(category.id)} · ${t('预算')}`)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, Math.round(spent / limit * 100))}"><span style="width:${Math.min(100, spent / limit * 100)}%"></span></div></div>` : `<p class="ll-caption">${e(t('这个月还没有设置这项预算。'))}</p>`}${button('edit-budget', t(hasBudget ? '编辑预算' : '设置预算'), hasBudget ? 'pencil-line' : 'plus', 'll-secondary full')}<section class="ll-section ll-budget-records"><div class="ll-section-head"><h2>${e(t('分类支出明细'))}<small>${records.length} ${e(t('笔'))}</small></h2></div>${records.length ? rows(records) : empty('这个分类本月还没有支出', false)}</section>${errorBlock()}`;
+  }
   function budgetForm() {
     return top(t('调整预算'), monthName(selectedMonth), true) + `<div class="ll-editor-card"><label>${e(t('分类'))}<button type="button" class="ll-select-trigger" data-action="pick-budget-category" aria-haspopup="dialog">${categoryIcon(cat(budgetCategory).icon, '', '', cat(budgetCategory).color)}<span>${e(name(budgetCategory))}</span>${icon('chevron-down')}</button></label><label class="ll-budget-input">${e(t('预算金额'))} · ${e(model.currency)}<input type="text" name="budget" inputmode="${C.currencyInfo(model.currency).digits ? 'decimal' : 'numeric'}" maxlength="12" value="${e(budgetDraft)}" placeholder="0"></label><p class="ll-caption">${e(t('只计算所选月份、这个分类的支出。'))}</p></div>${errorBlock()}${button('save-budget', t('保存'), 'check', 'll-primary full')}${model.budgets[selectedMonth]?.[budgetCategory] ? button('remove-budget', t('取消这项预算'), 'trash-2', 'll-danger full') : ''}`;
   }
   function settingsRow(action, title, sub, glyph, trailing = '') {return `<button type="button" class="ll-settings-row" data-action="${action}"><span class="ll-category-icon">${icon(glyph)}</span><span><strong>${e(t(title))}</strong>${sub ? `<small>${e(t(sub))}</small>` : ''}</span>${trailing ? `<span class="ll-setting-value">${e(trailing)}</span>` : ''}${icon('chevron-right')}</button>`;}
   function canUndo() {try {return !!undoModel || !!store.hasUndo?.();} catch {return false;}}
-  function settings() {return top(t('我的账本'), '') + `<section class="ll-section"><div class="ll-section-head"><h2>${e(t('账本设置'))}</h2></div><div class="ll-settings-group">${settingsRow('books', '管理账本', '', 'notebook-pen')}${settingsRow('language', '界面语言', '', 'languages', {zh: '中文', ja: '日本語', ko: '한국어', en: 'English'}[model.design.language])}${settingsRow('currencies', '主货币', '', 'banknote', model.currency)}${settingsRow('manage-categories', '自定义分类', '', 'shapes')}${settingsRow('toggle-motion', '轻快动画', '', 'sparkles', t(model.design.animations === false ? '停用' : '开启'))}</div></section><section class="ll-section"><div class="ll-section-head"><h2>${e(t('备份与导出'))}</h2></div><div class="ll-settings-group">${settingsRow('export-backup', '保存完整备份', '完整备份包含全部账本。', 'download')}${settingsRow('import-backup', '从文件恢复', '选择以前保存的完整备份', 'folder-open')}${settingsRow('export-csv', '导出当前账本 CSV', '当前账本的全部账目', 'file-spreadsheet')}${canUndo() ? settingsRow('undo-restore', '撤销上次恢复', '回到恢复前的全部账本', 'undo-2') : ''}</div></section><p class="ll-settings-note">${e(t('备份文件包含你的账目，请妥善保管。'))}</p><p class="ll-settings-note">${e(t('仅联网获取汇率，账目仍保存在手机里。'))}</p>${errorBlock()}<footer class="ll-footer">${icon('leaf')} ${e(t('小小账本'))} · 0.5.1</footer>`;}
+  function settings() {return top(t('我的账本'), '') + `<section class="ll-section"><div class="ll-section-head"><h2>${e(t('账本设置'))}</h2></div><div class="ll-settings-group">${settingsRow('books', '管理账本', '', 'notebook-pen')}${settingsRow('language', '界面语言', '', 'languages', {zh: '中文', ja: '日本語', ko: '한국어', en: 'English'}[model.design.language])}${settingsRow('currencies', '主货币', '', 'banknote', model.currency)}${settingsRow('manage-categories', '自定义分类', '', 'shapes')}${settingsRow('toggle-motion', '轻快动画', '', 'sparkles', t(model.design.animations === false ? '停用' : '开启'))}</div></section><section class="ll-section"><div class="ll-section-head"><h2>${e(t('备份与导出'))}</h2></div><div class="ll-settings-group">${settingsRow('export-backup', '保存完整备份', '完整备份包含全部账本。', 'download')}${settingsRow('import-backup', '从文件恢复', '选择以前保存的完整备份', 'folder-open')}${settingsRow('export-csv', '导出当前账本 CSV', '当前账本的全部账目', 'file-spreadsheet')}${canUndo() ? settingsRow('undo-restore', '撤销上次恢复', '回到恢复前的全部账本', 'undo-2') : ''}</div></section><p class="ll-settings-note">${e(t('备份文件包含你的账目，请妥善保管。'))}</p><p class="ll-settings-note">${e(t('仅联网获取汇率，账目仍保存在手机里。'))}</p>${errorBlock()}<footer class="ll-footer">${icon('leaf')} ${e(t('小小账本'))} · 0.5.2</footer>`;}
   function currencySettings() {return top(t('主货币'), '', true) + `<div class="ll-currency-intro"><span class="ll-category-icon">${icon('banknote')}</span><p>${e(t('主货币用于统计和预算，每一笔都可以选择不同货币。'))}</p></div><div class="ll-currency-choices">${C.CURRENCIES.map(code => `<button type="button" data-base-currency="${code}" aria-pressed="${code === model.currency}"><strong>${code}</strong><span>${e(currencyName(code))}</span>${code === model.currency ? icon('check-circle-2') : ''}</button>`).join('')}</div><p class="ll-settings-note">${e(t('账目和预算将一起换算，原币金额和旧换算记录会保留。'))}</p>${errorBlock()}`;}
   function languageSettings() {return top(t('选择语言'), '', true) + `<div class="ll-language-choices">${[['zh', '中文'], ['ja', '日本語'], ['ko', '한국어'], ['en', 'English']].map(([language, label]) => `<button type="button" class="ll-settings-row" data-language="${language}" aria-pressed="${language === model.design.language}"><span class="ll-category-icon">${icon('languages')}</span><span><strong>${label}</strong></span>${language === model.design.language ? icon('check-circle-2') : icon('chevron-right')}</button>`).join('')}</div>${errorBlock()}`;}
   function beginRebase(target) {
@@ -359,15 +391,17 @@
     return `<div class="ll-modal-shade"><section class="ll-modal" role="dialog" aria-modal="true" aria-labelledby="ll-dialog-title"><span class="ll-category-icon">${icon(modal === 'delete' ? 'trash-2' : 'archive-restore')}</span><h2 id="ll-dialog-title">${e(t(title))}</h2><p>${e(t(description))}</p><div>${button('close-modal', t('取消'), '', 'll-secondary')}${button(action, t(label), '', modal === 'delete' ? 'll-danger-button' : 'll-primary')}</div></section></div>`;
   }
   function render() {
-    const views = {books: booksPage, 'book-edit': bookEditor, home, stats, year: annual, months, calendar, add: addPage, detail, budgets: budgetsPage, 'budget-edit': budgetForm, settings, currencies: currencySettings, 'currency-change': rebasePage, languages: languageSettings, categories: manageCategories, 'category-edit': categoryEditor, search, 'category-details': categoryDetails, 'restore-preview': restorePreview};
+    const views = {books: booksPage, 'book-edit': bookEditor, home, stats, year: annual, months, calendar, add: addPage, detail, budgets: budgetsPage, 'budget-details': budgetDetails, 'budget-edit': budgetForm, settings, currencies: currencySettings, 'currency-change': rebasePage, languages: languageSettings, categories: manageCategories, 'category-edit': categoryEditor, search, 'category-details': categoryDetails, 'restore-preview': restorePreview};
     const nav = ['home', 'stats', 'budgets', 'settings'].includes(screen);
     const animate = model.design.animations !== false && lastRenderedScreen !== null && lastRenderedScreen !== screen;
     const homeDate = selectedMonth + '/' + (selectedDay || '*');
     const animateDate = screen === 'home' && lastRenderedScreen === 'home' && lastHomeDate !== null && lastHomeDate !== homeDate && model.design.animations !== false && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (screen === 'home') lastHomeDate = homeDate;
     lastRenderedScreen = screen;
-    phone.innerHTML = `<main class="ll-content ${nav ? 'with-nav' : ''} ${animate ? 'll-enter' : ''}" data-screen="${screen}">${store.failedToLoad ? `<div class="ll-load-error" role="alert">${e(t('无法读取已有账目，请先保留原始数据。'))}</div>` : ''}${(views[screen] || home)()}</main>${nav ? navigation() : ''}<div class="ll-toast ${toast ? 'visible' : ''}" role="status" aria-live="polite">${toast ? icon('check-circle-2') : ''}<span>${e(t(toast))}</span></div><input type="file" class="ll-file-input" accept=".json,application/json" aria-label="${e(t('恢复备份'))}" hidden>${modalView()}${pickerView()}`;
+    phone.innerHTML = `<main class="ll-content ${screen === 'home' ? 'll-home-a' : ''} ${nav ? 'with-nav' : ''} ${animate ? 'll-enter' : ''}" data-screen="${screen}">${store.failedToLoad ? `<div class="ll-load-error" role="alert">${e(t('无法读取已有账目，请先保留原始数据。'))}</div>` : ''}${(views[screen] || home)()}</main>${nav ? navigation() : ''}<div class="ll-toast ${toast ? 'visible' : ''}" role="status" aria-live="polite">${toast ? icon('check-circle-2') : ''}<span>${e(t(toast))}</span></div><input type="file" class="ll-file-input" accept=".json,application/json" aria-label="${e(t('恢复备份'))}" hidden>${modalView()}${pickerView()}`;
     phone.setAttribute('lang', model.design.language === 'en' ? 'en' : model.design.language === 'ja' ? 'ja' : model.design.language === 'ko' ? 'ko' : 'zh-CN');
+    phone.setAttribute('aria-label', t('小小账本'));
+    document.title = t('小小账本');
     phone.classList.toggle('ll-motion-off', model.design.animations === false);
     if (document.body.classList.contains('ll-native')) document.body.classList.toggle('ll-dialog-open', !!modal || !!picker);
     phone.querySelectorAll('button').forEach(button => button.classList.add('cursor-interaction'));
@@ -385,7 +419,7 @@
   function go(next) {if (next !== screen) history.push(screen); if (next !== 'add') invalidateRate(); if (screen === 'currency-change' && next !== 'currency-change') stopRebase(); screen = next; listLimit = 80; error = ''; modal = null; picker = null; render(); scrollTop();}
   function mainPage(next) {if (next !== 'add') invalidateRate(); if (screen === 'currency-change' && next !== 'currency-change') stopRebase(); screen = next; history = []; listLimit = 80; error = ''; modal = null; picker = null; render(); scrollTop();}
   function scrollTop() {if (store.data) window.scrollTo({top: 0, behavior: 'instant'});}
-  function goBack() {if (picker) {closePicker(); return true;} if (modal) {modal = null; render(); return true;} if (screen === 'home') return false; if (screen === 'currency-change') stopRebase(); screen = history.pop() || 'home'; if (screen !== 'add') invalidateRate(); error = ''; render(); scrollTop(); return true;}
+  function goBack() {if (picker) {closePicker(); return true;} if (modal) {modal = null; render(); return true;} if (screen === 'home') return false; if (screen === 'currency-change') stopRebase(); if (screen === 'budget-edit') budgetEditOrigin = null; screen = history.pop() || 'home'; if (screen !== 'add') invalidateRate(); error = ''; render(); scrollTop(); return true;}
   function showToast(message) {toast = message; clearTimeout(toastTimer); toastTimer = setTimeout(() => {toast = ''; const el = phone.querySelector('.ll-toast'); if (el) el.classList.remove('visible');}, 3300);}
   function playKoala(item) {
     clearTimeout(koalaTimer); clearTimeout(koalaBlinkTimer);
@@ -407,7 +441,7 @@
   }
   function syncWidget() {if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent: {palette: model.design.palette, roundedCorners: model.design.radius, mascot: model.design.mascot, language: model.design.language, mascotReaction: root.dataset.mascotReaction || 'cycle'}, privateContent: null}).catch(() => {});}
   function refreshClock() {try {const date = store.readToday?.(); if (date && date !== today) globalThis.ledgerRefreshToday(date);} catch {}}
-  function returnToday() {refreshClock(); selectedMonth = currentMonth; selectedDay = today; trendDay = null; mainPage('home');}
+  function returnToday() {refreshClock(); selectedMonth = currentMonth; selectedDay = screen === 'budget-details' ? null : today; trendDay = null; if (screen === 'budget-details') {render(); scrollTop();} else mainPage('home');}
   globalThis.ledgerGoBack = goBack;
   globalThis.ledgerRefreshToday = date => {if (!C.validDate(date) || date === today) return; const follow = selectedMonth === currentMonth && (!selectedDay || selectedDay === today); const followsDay = selectedDay === today; today = date; currentMonth = date.slice(0, 7); if (follow) {selectedMonth = currentMonth; if (followsDay) selectedDay = today;} render();};
   function saveRecord(again = false) {
@@ -418,14 +452,14 @@
     const convertedAmount = C.convertAmount(amount, draft.currency, model.currency, rate);
     if (convertedAmount === null) {error = '金额或换算结果超出范围。'; render(); return;}
     if (!C.validDate(draft.date)) {error = '请选择有效日期。'; render(); return;}
-    busy = true; const editing = editId !== null;
+    busy = true; const editing = editId !== null, returnOrigin = editing ? recordOrigin : null;
     try {
       let record = {id: editId || model.nextId, type: draft.type, category: draft.category, amount, currency: draft.currency, rate, convertedAmount, note: draft.note.trim(), date: draft.date};
       if (C.validDate(draft.rateDate)) record.rateDate = draft.rateDate;
       record = C.withValuations(record, model.currency, editing ? model.transactions.find(item => item.id === editId) : undefined);
       if (!change(() => {if (editing) model.transactions = model.transactions.map(item => item.id === editId ? record : item); else {model.transactions.push(record); model.nextId++;} model.design[draft.type === 'expense' ? 'lastExpenseCategory' : 'lastIncomeCategory'] = draft.category; model.design.lastCurrency = draft.currency; if (draft.currency !== model.currency && ['live', 'manual', 'cache'].includes(draft.rateSource) && (!model.exchangeRates[draft.currency] || draft.rateSource !== 'cache' || (draft.rateUpdatedAt || 0) > (model.exchangeRates[draft.currency].updatedAt || 0))) {model.exchangeRates[draft.currency] = {rate, updatedAt: draft.rateUpdatedAt || Date.now()}; if (record.rateDate) model.exchangeRates[draft.currency].date = record.rateDate;}})) {render(); return;}
       selectedMonth = draft.date.slice(0, 7); selectedDay = draft.date; showToast(editing ? '已修改' : '已保存'); error = ''; editId = null;
-      if (again) {draft.amount = ''; draft.note = ''; render();} else {mainPage('home');}
+      if (again) {draft.amount = ''; draft.note = ''; render();} else {recordOrigin = null; if (!returnBudgetDetails(returnOrigin)) mainPage('home');}
     } finally {busy = false;}
   }
   function keypad(key) {
@@ -440,7 +474,17 @@
     const alert = phone.querySelector('.ll-error'); if (alert) alert.textContent = t(error);
     updateConversionPreview();
   }
-  function editBudget(id) {budgetCategory = id || activeCats('expense')[0].id; budgetDraft = model.budgets[selectedMonth]?.[budgetCategory] ? amountInput(model.budgets[selectedMonth][budgetCategory]) : ''; go('budget-edit');}
+  function budgetContext() {return {bookId: collection.activeBookId, category: budgetDetailsCategory, month: selectedMonth};}
+  function openBudgetDetails(id) {if (cat(id)?.type !== 'expense') return; budgetDetailsCategory = id; go('budget-details');}
+  function returnBudgetDetails(context, category = context?.category) {
+    if (!context || context.bookId !== collection.activeBookId || cat(category)?.type !== 'expense' || !C.validDate(context.month + '-01')) return false;
+    const parent = history.lastIndexOf('budget-details');
+    if (parent >= 0) history = history.slice(0, parent);
+    budgetDetailsCategory = category; selectedMonth = context.month; selectedDay = null; trendDay = null;
+    invalidateRate(); screen = 'budget-details'; listLimit = 80; error = ''; modal = null; picker = null; render(); scrollTop();
+    return true;
+  }
+  function editBudget(id) {budgetEditOrigin = screen === 'budget-details' ? budgetContext() : null; budgetCategory = id || activeCats('expense')[0].id; budgetDraft = model.budgets[selectedMonth]?.[budgetCategory] ? amountInput(model.budgets[selectedMonth][budgetCategory]) : ''; go('budget-edit');}
   function imported(content) {try {pendingBackup = C.readCollectionBackup(content); go('restore-preview');} catch (failure) {error = failure.message === 'unsupported_backup' || failure.message === 'unsupported_format' ? '备份版本暂不支持。' : '文件不是有效的小小账本备份。'; render();}}
   globalThis.ledgerImportReady = imported;
   globalThis.ledgerFileResult = result => {if (result.status === 'success') showToast('文件已保存'); else if (result.status !== 'cancelled') error = '无法保存或读取文件，请重试。'; render();};
@@ -491,19 +535,19 @@
     const item = event.target.closest('button'); if (!item || item.disabled) return; const data = item.dataset; error = '';
     if (data.pickCurrency && C.CURRENCIES.includes(data.pickCurrency)) {prepareCurrency(data.pickCurrency); closePicker(); if (draft.currency !== model.currency) requestDraftRate(); return;}
     if (data.pickBudgetCategory) {budgetCategory = data.pickBudgetCategory; budgetDraft = model.budgets[selectedMonth]?.[budgetCategory] ? amountInput(model.budgets[selectedMonth][budgetCategory]) : ''; closePicker(); return;}
-    if (data.switchBook) {if (change(() => {collection.activeBookId = data.switchBook; bindBook();})) {invalidateRate(); stopRebase(); draft = {}; editId = detailId = null; query = ''; trendDay = null; showToast('账本已切换'); mainPage('home');} else render(); return;}
+    if (data.switchBook) {if (change(() => {collection.activeBookId = data.switchBook; bindBook();})) {invalidateRate(); stopRebase(); draft = {}; editId = detailId = null; budgetDetailsCategory = budgetEditOrigin = recordOrigin = null; query = ''; trendDay = null; showToast('账本已切换'); mainPage('home');} else render(); return;}
     if (data.editBook) {editingBookId = data.editBook; bookNameDraft = bookName(collection.books.find(book => book.id === editingBookId)); go('book-edit'); return;}
     if (data.key) {keypad(data.key); return;}
     if (data.moveMonth) {selectedMonth = C.moveMonth(selectedMonth, Number(data.moveMonth)); selectedDay = null; trendDay = null; render(); return;}
     if (data.moveYear) {viewYear = Math.min(9999, Math.max(1, viewYear + Number(data.moveYear))); render(); return;}
-    if (data.viewMonth) {selectedMonth = data.viewMonth; selectedDay = null; trendDay = null; mainPage(monthOrigin); return;}
+    if (data.viewMonth) {selectedMonth = data.viewMonth; selectedDay = null; trendDay = null; if (monthOrigin === 'budget-details' && screen === 'months') goBack(); else mainPage(monthOrigin); return;}
     if (data.selectDay) {selectedDay = data.selectDay; selectedMonth = selectedDay.slice(0, 7); mainPage('home'); return;}
-    if (data.detail) {detailId = Number(data.detail); go('detail'); return;}
+    if (data.detail) {detailId = Number(data.detail); recordOrigin = screen === 'budget-details' ? budgetContext() : null; go('detail'); return;}
     if (data.type) {draft.type = data.type; draft.category = activeCats(draft.type).find(category => category.id === model.design[draft.type === 'expense' ? 'lastExpenseCategory' : 'lastIncomeCategory'])?.id || activeCats(draft.type)[0].id; render(); return;}
     if (data.category) {draft.category = data.category; render(); return;}
     if (data.statType) {statType = data.statType; trendDay = null; render(); return;}
     if (data.categoryType) {categoryType = data.categoryType; render(); return;}
-    if (data.budgetCategory) {editBudget(data.budgetCategory); return;}
+    if (data.budgetCategory) {openBudgetDetails(data.budgetCategory); return;}
     if (data.filterCategory) {filterCategory = data.filterCategory; go('category-details'); return;}
     if (data.editCategory) {categoryDraft = {...cat(data.editCategory), existing: true}; go('category-edit'); return;}
     if (data.icon) {categoryDraft.icon = data.icon; render(); return;}
@@ -530,7 +574,7 @@
     if (action === 'back') {goBack(); return;}
     if (action === 'today') {returnToday(); return;}
     if (action === 'this-year') {viewYear = Number(today.slice(0, 4)); render(); return;}
-    if (action === 'months') {monthOrigin = ['home', 'stats', 'budgets', 'calendar'].includes(screen) ? screen : 'home'; viewYear = Number(selectedMonth.slice(0, 4)); go('months'); return;}
+    if (action === 'months') {monthOrigin = ['home', 'stats', 'budgets', 'calendar', 'budget-details'].includes(screen) ? screen : 'home'; viewYear = Number(selectedMonth.slice(0, 4)); go('months'); return;}
     if (action === 'year') {viewYear = Number(selectedMonth.slice(0, 4)); monthOrigin = 'home'; go('year'); return;}
     if (action === 'calendar') {go('calendar'); return;}
     if (action === 'all-month') {selectedDay = null; render(); return;}
@@ -540,10 +584,11 @@
     if (action === 'edit') {const record = model.transactions.find(item => item.id === detailId); if (record) {invalidateRate(); draft = {...record, amount: amountInput(record.amount, record.currency), rateDate: record.rateDate || '', rateSource: 'record', rateLoading: false, rateFailed: false}; editId = record.id; go('add');} return;}
     if (action === 'delete') modal = 'delete';
     if (action === 'close-modal') modal = null;
-    if (action === 'confirm-delete') {if (change(() => {model.transactions = model.transactions.filter(item => item.id !== detailId);})) {showToast('已删除'); mainPage('home'); return;} modal = null;}
+    if (action === 'confirm-delete') {if (change(() => {model.transactions = model.transactions.filter(item => item.id !== detailId);})) {showToast('已删除'); const origin = recordOrigin; recordOrigin = null; detailId = null; if (!returnBudgetDetails(origin)) mainPage('home'); return;} modal = null;}
     if (action === 'budget-new') {editBudget(); return;}
-    if (action === 'save-budget') {const value = C.parseAmount(budgetDraft.trim(), model.currency); if (!C.amountOK(value)) error = model.currency === 'JPY' ? '请输入大于 0 的整数日元金额。' : '请输入大于 0 的有效金额。'; else if (change(() => {C.setBudget(model, selectedMonth, budgetCategory, value);} )) {showToast('预算已更新'); mainPage('budgets'); return;}}
-    if (action === 'remove-budget') {if (change(() => {C.deleteBudget(model, selectedMonth, budgetCategory);} )) {showToast('预算已更新'); mainPage('budgets'); return;}}
+    if (action === 'edit-budget' && screen === 'budget-details') {editBudget(budgetDetailsCategory); return;}
+    if (action === 'save-budget') {const value = C.parseAmount(budgetDraft.trim(), model.currency); if (!C.amountOK(value)) error = model.currency === 'JPY' ? '请输入大于 0 的整数日元金额。' : '请输入大于 0 的有效金额。'; else if (change(() => {C.setBudget(model, selectedMonth, budgetCategory, value);} )) {showToast('预算已更新'); const origin = budgetEditOrigin; budgetEditOrigin = null; if (!returnBudgetDetails(origin, budgetCategory)) mainPage('budgets'); return;}}
+    if (action === 'remove-budget') {if (change(() => {C.deleteBudget(model, selectedMonth, budgetCategory);} )) {showToast('预算已更新'); const origin = budgetEditOrigin; budgetEditOrigin = null; if (!returnBudgetDetails(origin, budgetCategory)) mainPage('budgets'); return;}}
     if (action === 'copy-budgets') modal = 'copy';
     if (action === 'do-copy-budgets') {if (change(() => {C.copyBudgets(model, C.moveMonth(selectedMonth, -1), selectedMonth);})){showToast('预算已更新'); modal = null;} else modal = null;}
     if (action === 'language') {go('languages'); return;}
