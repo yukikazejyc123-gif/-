@@ -1,2 +1,13 @@
 # -
 存放一些练手之作
+
+## 小小账本 · Little Ledger
+
+简约可爱的安卓现金记账应用，支持中文、日文、韩文和英语，提供多个独立账本、月度分类预算、多货币、年度账单和本地备份。
+
+- [下载 0.5.0 安卓安装包](downloads/little-ledger-0.5.0.apk?raw=true)
+- [源码与项目介绍](little-ledger/)
+- [使用说明](little-ledger/docs/使用说明.md)
+- [验证结果](little-ledger/docs/验证结果.md)
+
+![多账本界面](little-ledger/docs/images/books.png)

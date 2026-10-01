@@ -1,0 +1,53 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.koalaledger.app'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+
+    defaultConfig {
+        applicationId 'com.koalaledger.app'
+        minSdk 26
+        targetSdk 35
+        versionCode 5
+        versionName '0.5.0'
+    }
+
+    // Local test builds retain the existing update signature. A fresh clone
+    // without the private key uses the Android plugin's normal debug key.
+    if (rootProject.file('dev-signing/test.keystore').exists()) {
+        signingConfigs {
+            debug {
+                storeFile rootProject.file('dev-signing/test.keystore')
+                storePassword 'android'
+                keyAlias 'koala-development'
+                keyPassword 'android'
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
